@@ -10,6 +10,13 @@
 #include <cstddef>
 #include <iostream>
 
+#ifndef GASNET_CONDUIT_ARIES
+#define USE_AMPOLL
+#else
+// #warning "Compile without gasnet_AMPoll()"
+#define USE_AMPOLL
+#endif
+
 class my_mpi
 {
 public:

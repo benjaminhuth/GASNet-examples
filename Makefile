@@ -1,15 +1,12 @@
-# choose conduit, compiler and directory according to your system
-CONDUIT=
-MPICXX=
-GASNET_INSTALL_DIR=
-STD=-std=c++14
-
+# include either Makefile-config-archer or Makefile-config-local
+include ...
 include $(GASNET_INSTALL_DIR)/include/$(CONDUIT)-conduit/$(CONDUIT)-par.mak
 
+# fix C++ bugs in GASNet file
 ifdef GASNET_LD_REQUIRES_MPI
 GASNET_CXX = $(MPICXX)
-GASNET_LD = $(MPICXX)
 endif
+GASNET_LD = $(GASNET_CXX)
 
 .PHONY: all hello_world first_comm stencil_1d gasnet_mpi_ranks preproc_defines my_mpi clean
 

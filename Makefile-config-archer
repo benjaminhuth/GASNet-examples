@@ -1,0 +1,4 @@
+CONDUIT=aries
+MPICXX=CC
+GASNET_INSTALL_DIR=/work/y14/y14/bhuth/GASNet/local
+STD=-std=c++14

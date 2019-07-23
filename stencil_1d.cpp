@@ -4,10 +4,9 @@
 #include <algorithm>
 #include <numeric>
 #include <cstring>
+#include <cmath>
 
 #include <gasnet.h>
-
-#include <mcl/basic.hpp>
 
 #define BARRIER BARRIER_WAIT 
 

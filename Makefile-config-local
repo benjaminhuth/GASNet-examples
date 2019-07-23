@@ -1,0 +1,4 @@
+CONDUIT=mpi
+MPICXX=mpicxx
+GASNET_INSTALL_DIR=/home/benjamin/Dokumente/prace_summer/project/GASNet/local/
+STD=-std=c++14

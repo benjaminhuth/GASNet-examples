@@ -66,7 +66,9 @@ std::pair<char *, std::size_t> my_mpi::wait_for_message_arrival(int id)
     
     do
     {
+#ifdef USE_AMPOLL
         gasnet_AMPoll();
+#endif
         found = std::find_if(g_recv_messages.begin(), g_recv_messages.end(), [&](auto &msg){ return msg.id == id; });
     }
     while( found == g_recv_messages.end() );
