@@ -1,5 +1,5 @@
 # include either Makefile-config-archer or Makefile-config-local
-include ...
+include Makefile-config-local
 include $(GASNET_INSTALL_DIR)/include/$(CONDUIT)-conduit/$(CONDUIT)-par.mak
 
 # fix C++ bugs in GASNet file
@@ -8,9 +8,9 @@ GASNET_CXX = $(MPICXX)
 endif
 GASNET_LD = $(GASNET_CXX)
 
-.PHONY: all hello_world first_comm stencil_1d gasnet_mpi_ranks preproc_defines my_mpi clean
+.PHONY: all hello_world first_comm stencil_1d gasnet_mpi_ranks my_mpi mpi_pingpong gasnet_pingpong clean
 
-all: hello_world first_comm stencil_1d gasnet_mpi_ranks my_mpi
+all: hello_world first_comm stencil_1d gasnet_mpi_ranks my_mpi mpi_pingpong gasnet_pingpong
 
 hello_world:
 	$(GASNET_CXX) $(STD) $(GASNET_CXXCPPFLAGS) $(GASNET_CXXFLAGS) hello_world.cpp -c -o hello_world.o
@@ -34,7 +34,14 @@ preproc_defines:
 my_mpi:
 	$(GASNET_CXX) $(STD) $(GASNET_CXXCPPFLAGS) $(GASNET_CXXFLAGS) my_mpi/test.cpp   -c -o my_mpi/test.o
 	$(GASNET_CXX) $(STD) $(GASNET_CXXCPPFLAGS) $(GASNET_CXXFLAGS) my_mpi/my_mpi.cpp -c -o my_mpi/my_mpi.o
-	$(GASNET_LD) $(GASNET_LDFLAGS) my_mpi/test.o my_mpi/my_mpi.o	 $(GASNET_LIBS) -o my_mpi/test.out
+	$(GASNET_LD) $(GASNET_LDFLAGS) my_mpi/test.o my_mpi/my_mpi.o $(GASNET_LIBS) -o my_mpi/test.out
+	
+mpi_pingpong:
+	$(MPICXX) $(STD) micro_benchmarks/pingpong_mpi.cpp -o micro_benchmarks/pingpong_mpi.out
+	
+gasnet_pingpong:
+	$(GASNET_CXX) $(STD) $(GASNET_CXXCPPFLAGS) $(GASNET_CXXFLAGS) micro_benchmarks/pingpong_gasnet.cpp -c -o micro_benchmarks/pingpong_gasnet.o
+	$(GASNET_LD) $(GASNET_LDFLAGS) micro_benchmarks/pingpong_gasnet.o $(GASNET_LIBS) -o micro_benchmarks/pingpong_gasnet.out
 	
 clean:
 	rm -f *.out
