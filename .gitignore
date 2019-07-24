@@ -33,3 +33,7 @@
 
 # KDevelop files
 *.kdev4
+
+# Data
+*.txt
+*.csv

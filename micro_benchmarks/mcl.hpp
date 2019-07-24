@@ -17,7 +17,7 @@ namespace mc
 {
     
     // Average
-    template<class iterator_t, class number_t = typename iterator_t::value_type>
+    template<class iterator_t, class number_t = typename std::iterator_traits<iterator_t>::value_type>
     inline number_t average(const iterator_t begin, const iterator_t end)
     {
         static_assert( std::is_arithmetic<number_t>::value, "Container must store arithmetic type");
@@ -34,7 +34,7 @@ namespace mc
     
     // Standard deviation
     
-    template<class iterator_t, class number_t = typename iterator_t::value_type>
+    template<class iterator_t, class number_t = typename std::iterator_traits<iterator_t>::value_type>
     inline number_t standard_deviation(const iterator_t begin, const iterator_t end)
     {
         static_assert( std::is_arithmetic<number_t>::value, "Container must store arithmetic type");

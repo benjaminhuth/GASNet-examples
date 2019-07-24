@@ -3,40 +3,63 @@
 
 #include <vector>
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include "mcl.hpp"
 
-struct performance_data_t
+struct bandwidth_data_t
 {
-    double latency, bandwidth_min, bandwidth_max, bandwidth_avg, bandwidth_err;
+    double min, max, avg, err;
 };
 
-performance_data_t compute_latency_bandwidth(std::vector<int> sizes, std::vector<double> times)
+struct time_data_t
+{
+    double min_avg, min_err; int min_size;
+    double max_avg, max_err; int max_size;
+};
+
+time_data_t compute_time_data(const std::vector<double> &times, const std::vector<double> &times_err, const std::vector<int> &sizes)
 {        
-    auto latency = *std::min_element(times.begin(), times.end());        
+    auto min_time_it   = std::min_element(times.begin(), times.end());
+    auto min_time_size = sizes.at( min_time_it - times.begin() );
+    auto min_time_err  = times_err.at( min_time_it - times.begin() );
     
-    // cut latency bound part
-    auto latency_limit = std::find_if(times.begin(), times.end(), [&](double &el){ return el > 5*latency; });
-    sizes.erase(sizes.begin(), sizes.begin() + (latency_limit - times.begin()));        
-    times.erase(times.begin(), latency_limit);
+    auto max_time_it   = std::max_element(times.begin(), times.end());
+    auto max_time_size = sizes.at( max_time_it - times.begin() );
+    auto max_time_err  = times_err.at( max_time_it - times.begin() );
     
-    // compute bandwidths
+    return { *min_time_it, min_time_err, min_time_size, *max_time_it, max_time_err, max_time_size };
+}
+    
+
+bandwidth_data_t compute_bandwidth_data(double latency, const std::vector<double> &times, const std::vector<int> &sizes)
+{        
     std::vector<double> bandwidths(times.size());
-    std::transform(times.begin(), times.end(), sizes.begin(), bandwidths.begin(), [](double time, double size){ return size / time; });
+    std::transform(times.begin(), times.end(), sizes.begin(), bandwidths.begin(),
+                       [&](const double &time, const int &size){ return (time - latency > latency ? static_cast<double>(size)/time : 0.0); });
+        
+    bandwidths.erase( std::remove(bandwidths.begin(), bandwidths.end(), 0.0), bandwidths.end() );
+        
+    auto bndw_min = *std::min_element(bandwidths.begin(), bandwidths.end());
+    auto bndw_max = *std::max_element(bandwidths.begin(), bandwidths.end());
+    auto bndw_avg = mc::average(bandwidths);
+    auto bndw_err = mc::standard_deviation(bandwidths);
     
-    auto max_bandwidth = *std::max_element(bandwidths.begin(), bandwidths.end());
-    auto min_bandwidth = *std::min_element(bandwidths.begin(), bandwidths.end());
-    auto avg_bandwidth = mc::average(bandwidths);
-    auto err_bandwidth = mc::standard_deviation(bandwidths);
-    
-    return { latency, min_bandwidth, max_bandwidth, avg_bandwidth, err_bandwidth };
+    return { bndw_min, bndw_max, bndw_avg, bndw_err };
 }
 
-void print_results(const performance_data_t &results)
+template<class A, class B, class C>
+void export_3_vectors(std::array<std::string, 3> titles, std::vector<A> a, std::vector<B> b, std::vector<C> c, std::string filename)
 {
-    std::cout << "latency   = " << results.latency * 1.0e6 << " us" << std::endl;
-    std::cout << "bandwidth = " << results.bandwidth_avg/1.0e9 << " +- " << results.bandwidth_err/1.0e9 << " Gb/s" << std::endl; 
-    std::cout << "bandwidth range = [ " << results.bandwidth_min/1.0e9 << ", " << results.bandwidth_max/1.0e9 << " ] Gb/s" << std::endl;
+    std::ofstream file(filename);
+    if( a.size() != b.size() || a.size() != c.size() ) throw std::runtime_error("vector sizes don't match");
+    
+    file << titles[0] << '\t' << titles[1] << '\t' << titles[2] << '\n';
+    
+    for(int i=0; i<a.size(); ++i)
+    {
+        file << a[i] << '\t' << b[i] << '\t' << c[i] << '\n';
+    }
 }
     
 

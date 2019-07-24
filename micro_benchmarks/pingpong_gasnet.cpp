@@ -1,180 +1,155 @@
 #include <iostream>
-#include <vector>
 #include <cstring>
 #include <algorithm>
 #include <gasnet.h>
 #include <chrono>
+#include <vector>
+#include <array>
 
 #include "mcl.hpp"
 #include "result.hpp"
 
-#define BARRIER()                                           \
-do {                                                        \
-  gasnet_barrier_notify(0,GASNET_BARRIERFLAG_ANONYMOUS);    \
-  gasnet_barrier_wait(0,GASNET_BARRIERFLAG_ANONYMOUS);      \
-} while (0)
+#include "test_short.hpp"
+#include "test_medium.hpp"
+#include "test_long.hpp"
 
-typedef char byte_t;
+// #define DO_REPLY
+// #define DO_WARMUP
 
-const int N = 500;
-const int N_warmup = 50;
-
-int rank, nodes;
-bool msg_pending = false;
-bool msg_recieved = false;
-
-byte_t *data;
-int local_number;
-
-void medium_request_handler(gasnet_token_t token, void *buf, size_t size)
-{
-    std::memcpy(data, buf, size);
-    msg_recieved = true;
-    gasnet_AMReplyShort0(token, 252);
-}
-
-void short_request_handler(gasnet_token_t token, gasnet_handlerarg_t recv_number)
-{
-    if( recv_number - local_number != 2 )
-        throw std::runtime_error("number difference != 2");
-    
-    local_number = recv_number;
-    msg_recieved = true;
-    
-    gasnet_AMReplyShort0(token, 252);
-}
-
-void reply_handler(gasnet_token_t token)
-{
-    msg_pending = false;
-}
-
-void send_medium(byte_t *data, std::size_t size, int dest)
-{
-    GASNET_BLOCKUNTIL(msg_recieved == true);
-    msg_recieved = false;
-    msg_pending = true;
-    gasnet_AMRequestMedium0(dest, 250, data, size);
-    GASNET_BLOCKUNTIL(msg_pending == false);
-}
-
-void send_short(int dest)
-{    
-    GASNET_BLOCKUNTIL(msg_recieved == true);
-//     std::cout << (rank == 0 ? "ping" : "pong") << std::endl;
-    msg_recieved = false;
-    msg_pending = true;
-    gasnet_AMRequestShort1(dest, 251, local_number+1);
-    GASNET_BLOCKUNTIL(msg_pending == false);
-}
+constexpr int iterations = 200;
 
 int main(int argc, char ** argv)    
 {
     std::vector<gasnet_handlerentry_t> handlers = { 
-        { 250, (void(*)())medium_request_handler }, 
-        { 251, (void(*)())short_request_handler },
-        { 252, (void(*)())reply_handler },
+        { short_req_id,  (void(*)())short_request_handler }, 
+        { short_rep_id,  (void(*)())short_reply_handler },
+        { medium_req_id, (void(*)())medium_request_handler },
+        { medium_rep_id, (void(*)())medium_reply_handler },
+        { long_req_id,   (void(*)())long_request_handler },
+        { long_rep_id,   (void(*)())long_reply_handler }
     };
     
     gasnet_init(&argc, &argv);
     std::size_t segment_size = 1024*1024*128; // 128 Mbyte
     gasnet_attach(handlers.data(), handlers.size(), segment_size, 0);
     
-    rank = gasnet_mynode();
-    nodes = gasnet_nodes();
+    int rank = gasnet_mynode();
+    std::string filename_modifiers;
     
-    if( nodes != 2 ) throw std::runtime_error("Must run with 2 processes!");
-    int neighbour = (rank == 0 ? 1 : 0);
+    if( gasnet_nodes() != 2 ) throw std::runtime_error("Must run with 2 processes!");
     
-    const int message_size_min = 8;
-    int message_size_max = gasnet_AMMaxMedium(); // ca. 64 Mbyte
+    if(rank == 0 ) 
+    {
+        std::cout << "PING-PONG BENCHMARK";
+#ifdef DO_REPLY
+        std::cout << " \\w reply";
+        filename_modifiers += "_reply";
+#else
+        std::cout << " \\wo reply";
+#endif
+        
+#ifdef DO_WARMUP
+        std::cout << " \\w warmup";
+        filename_modifiers += "_warmup";
+#else
+        std::cout << " \\wo warmup";
+#endif
+        std::cout << std::endl;
+    }
+    
+    // test short messages
+    if(rank == 0 ) std::cout << "- ping-pong on short" << std::endl;
+    
+    std::vector<double> data_short;
+    for(std::size_t i=0; i<iterations; ++i)
+        data_short.push_back(benchmark_short());
+
+    // test medium messages
+    int medium_msg_size_min = 8;
+    int medium_msg_size_max = gasnet_AMMaxMedium();
+    if(rank == 0 ) std::cout << "- ping-pong on medium, sizes: [ " << medium_msg_size_min << " B, " << medium_msg_size_max/1.0e3 << " kB ]" << std::endl;
     
     std::vector<int> medium_sizes;
     std::vector<double> medium_times;
-    double short_time;
+    std::vector<double> medium_times_err;
     
-    if(rank == 0 ) std::cout << "PING-PONG BENCHMARK" << std::endl;
-    
-    // test short messages
-    if(rank == 0 ) std::cout << "ping-pong on short" << std::endl;
-    
+    for(std::size_t msg_size = medium_msg_size_min; msg_size < medium_msg_size_max; msg_size *= 2)
     {
-        // warm up
-        local_number = ( rank == 0 ? 0 : -1 ); // start #1 with -1 since difference after each ping-pong should be 2
-        msg_recieved = ( rank == 0 ? true : false ); // start chain with rank 0
-        msg_pending = false;
+        std::vector<double> times;
         
-        BARRIER();
-        for(std::size_t n=0; n<N_warmup; ++n)
-        {
-            send_short(neighbour);
-        }
-        BARRIER();
+        for(std::size_t i=0; i<iterations; ++i)
+            times.push_back( benchmark_medium(msg_size) );
         
-        // benchmark
-        local_number = ( rank == 0 ? 0 : -1 ); // start #1 with -1 since difference after each ping-pong should be 2
-        msg_recieved = ( rank == 0 ? true : false ); // start chain with rank 0
-        msg_pending = false;
-        
-        BARRIER();
-        auto t_0 = std::chrono::high_resolution_clock::now();
-            
-        for(std::size_t n=0; n<N; ++n)
-        {
-            send_short(neighbour);
-        }
-            
-        BARRIER();
-        auto t_1 = std::chrono::high_resolution_clock::now();
-        
-        short_time = std::chrono::duration<double>(t_1 - t_0).count() / N;
+        medium_sizes.push_back(msg_size);
+        medium_times.push_back(mc::average(times));
+        medium_times_err.push_back(mc::standard_deviation(times));
     }
     
-    // test medium messages
-    data = new byte_t[message_size_max];
+    // test long messages
+    int long_msg_size_min = 8;
+    int long_msg_size_max = std::min(segment_size, gasnet_AMMaxLongRequest());
+    if(rank == 0 ) std::cout << "- ping-pong on long, sizes: [ " << long_msg_size_min << " B, " << long_msg_size_max/1.0e3 << " kB ]" << std::endl;
     
-    if(rank == 0 ) std::cout << "ping-pong on medium [ " << message_size_min << ", " << message_size_max << "] " << std::endl;
+    std::vector<int> long_sizes;
+    std::vector<double> long_times;
+    std::vector<double> long_times_err;
     
-    for(int message_size = message_size_min; message_size <= message_size_max; message_size*=2)
+    for(std::size_t msg_size = long_msg_size_min; msg_size < long_msg_size_max; msg_size *= 2)
     {
-//         if(rank == 0 ) std::cout << "message_size = " << message_size << std::endl;
+        std::vector<double> times;
         
-        msg_recieved = ( rank == 0 ? true : false ); // start chain with rank 0
-        msg_pending = false;
+        for(std::size_t i=0; i<iterations; ++i)
+            times.push_back( benchmark_long(msg_size) );
         
-        BARRIER();
-        auto t_0 = std::chrono::high_resolution_clock::now();
-        
-        for(std::size_t n=0; n<N; ++n)
-        {
-            send_medium(data, message_size, neighbour);
-        }
-        
-        BARRIER();
-        auto t_1 = std::chrono::high_resolution_clock::now();
-        
-        medium_sizes.push_back( message_size );
-        medium_times.push_back( std::chrono::duration<double>(t_1 - t_0).count() / N );
+        long_sizes.push_back(msg_size);
+        long_times.push_back(mc::average(times));
+        long_times_err.push_back(mc::standard_deviation(times));
     }
     
-    gasnet_AMPoll();
-    
-    delete[] data;
-    
+    BARRIER();
+    // compute results    
     if( rank == 0 )
     {
-        std::cout << std::endl;
-        std::cout << "RESULTS:" << std::endl;
-        auto latency_short = short_time / 4; // (req + rec) * 2
-        std::cout << "min_time (short) = " << short_time * 1.0e6 << " us" << std::endl;
-        std::cout << "latency (short) = " << latency_short * 1.0e6 << " us" << std::endl;
+        std::cout << std::fixed;
+        std::cout << "RESULTS:" << std::endl; 
         
-        auto min_time_it = std::min_element(medium_times.begin(), medium_times.end());
-        std::cout << "min_time achieved at " << medium_sizes.at(medium_times.end() - min_time_it) << " bytes" << std::endl;
-        auto latency_medium = *min_time_it / 4;
+        // short
+        std::cout << "- short:  min_time         = ( " 
+                  << mc::average(data_short)*1.0e6 << " +- " << mc::standard_deviation(data_short)*1.0e6 << " ) us    => latency" << std::endl;
         
-        std::cout << "min_time (medium) = " << *min_time_it * 1.0e6 << " us" << std::endl;
-        std::cout << "latency (medium) = " << latency_medium * 1.0e6 << " us" << std::endl;
+        // medium
+        auto mtimes = compute_time_data(medium_times, medium_times_err, medium_sizes);
+        auto mlatency = mtimes.min_avg;
+        
+        std::cout << "- medium: min_time         = ( " << mtimes.min_avg*1.0e6 << " +- " << mtimes.min_err*1.0e6 << " ) us    => latency" << std::endl;
+        std::cout << "- medium: size @min_time   = " << mtimes.min_size << " B" << std::endl;
+        
+        std::cout << "- medium: max_time         = ( " << mtimes.max_avg*1.0e6 << " +- " << mtimes.max_err*1.0e6 << " ) us" << std::endl;
+        std::cout << "- medium: size @max_time   = " << mtimes.max_size << " B" << std::endl;
+        
+        auto mbndws = compute_bandwidth_data(mlatency, medium_times, medium_sizes);
+        
+        std::cout << "- medium: bandwidth range  = [ " << mbndws.min/1.0e9 << ", " << mbndws.max/1.0e9 << " ] GB/s" << std::endl;
+        std::cout << "- medium: bandwidth value  = ( " << mbndws.avg/1.0e9 << " +- " << mbndws.err/1.0e9 << " ) GB/s" << std::endl;
+        
+        export_3_vectors({"size", "time", "error"}, medium_sizes, medium_times, medium_times_err, "gasnet_pingpong_medium" + filename_modifiers + ".txt");
+                
+        // long
+        auto ltimes = compute_time_data(long_times, long_times_err, long_sizes);
+        auto llatency = ltimes.min_avg;
+        
+        std::cout << "- long:   min_time         = ( " << ltimes.min_avg*1.0e6 << " +- " << ltimes.min_err*1.0e6 << " ) us    => latency" << std::endl;
+        std::cout << "- long:   size @min_time   = " << ltimes.min_size << " B" << std::endl;
+        
+        std::cout << "- long:   max_time         = ( " << ltimes.max_avg*1.0e6 << " +- " << ltimes.max_err*1.0e6 << " ) us" << std::endl;
+        std::cout << "- long:   size @max_time   = " << ltimes.max_size << " B" << std::endl;
+        
+        auto lbndws = compute_bandwidth_data(llatency, long_times, long_sizes);
+        
+        std::cout << "- long:   bandwidth range  = [ " << lbndws.min/1.0e9 << ", " << lbndws.max/1.0e9 << " ] GB/s" << std::endl;
+        std::cout << "- long:   bandwidth value  = ( " << lbndws.avg/1.0e9 << " +- " << lbndws.err/1.0e9 << " ) GB/s" << std::endl;
+        
+        export_3_vectors({"size", "time", "error"}, long_sizes, long_times, long_times_err, "gasnet_pingpong_long" + filename_modifiers + ".txt");
     }
     
     BARRIER();
