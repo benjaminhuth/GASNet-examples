@@ -64,8 +64,8 @@ void send_long(byte_t *data, std::size_t size, int dest, void *dest_mem)
 
 double benchmark_long(int message_size)
 {    
-    if( message_size > gasnet_AMMaxMedium() )
-        throw std::runtime_error("message_size for medium must not be greater than gasnet_AMMaxMedium()");
+    if( message_size > gasnet_AMMaxLongRequest() )
+        throw std::runtime_error("message_size for medium must not be greater than gasnet_AMMaxLongRequest()");
     
     int neighbour = (gasnet_mynode() == 0 ? 1 : 0);
     
