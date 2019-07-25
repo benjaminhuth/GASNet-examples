@@ -21,6 +21,7 @@ do {                                                        \
 
 typedef char byte_t;
 
+// global data for medium message
 namespace m
 {
     const int N = 500;
@@ -36,8 +37,7 @@ const gasnet_handler_t medium_req_id = 202;
 const gasnet_handler_t medium_rep_id = 203;
 
 void medium_request_handler(gasnet_token_t token, void *buf, size_t size, int recv_number)
-{    
-//     std::cout << "recv_number = " << recv_number << ", local_number = " << m::local_number << " on rank #" << gasnet_mynode() << std::endl;
+{
     if( recv_number - m::local_number != 2 )
         throw std::runtime_error("number difference != 2");
     
@@ -55,10 +55,10 @@ void medium_reply_handler(gasnet_token_t token)
     m::reply_number++;
 }
 
+// send next number to 
 void send_medium(byte_t *data, std::size_t size, int dest)
 {
     GASNET_BLOCKUNTIL(m::msg_recieved == true);
-//     if( gasnet_mynode() == 1 ) std::cout << "passed block on rank #" << gasnet_mynode() << std::endl;
     m::msg_recieved = false;
     gasnet_AMRequestMedium1(dest, medium_req_id, data, size, m::local_number+1);
 }

@@ -11,6 +11,8 @@
 #include "result.hpp"
 
 #define STANDARD_TAG 10
+// #define DO_WARMUP
+#define NON_BLOCKING
 
 const int N = 500;
 const int N_warmup = 50;
@@ -36,23 +38,38 @@ void recv(byte_t *msg, size_t size, int src, std::string name)
 
 double benchmark(int rank, size_t message_size)
 {   
+    MPI_Request req_array[2];
+    MPI_Status  stat_array[2];
     double t_0, t_1;
     
     if( rank == 0 )
     {
+        int neighbour = 1;
         auto message = new byte_t[message_size];
         
         for(int n=0; n<N_warmup; ++n)
         {
-            send(message, message_size, 1, "ping");
-            recv(message, message_size, 1, "ping");
+#ifndef NON_BLOCKING
+            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
+            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+#else
+            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+            MPI_Waitall(2, req_array, stat_array);
+#endif
         }
         
         t_0 = my_time();
         for(int n=0; n<N; ++n)
         {
-            send(message, message_size, 1, "ping");
-            recv(message, message_size, 1, "ping");
+#ifndef NON_BLOCKING
+            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
+            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+#else
+            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+            MPI_Waitall(2, req_array, stat_array);
+#endif
         }
         t_1 = my_time();
         
@@ -60,19 +77,32 @@ double benchmark(int rank, size_t message_size)
     }
     else if( rank == 1 )
     {
+        int neighbour = 0;
         auto message = new byte_t[message_size];
         
         for(int n=0; n<N_warmup; ++n)
         {
-            recv(message, message_size, 0, "pong");
-            send(message, message_size, 0, "pong");
+#ifndef NON_BLOCKING
+            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
+#else
+            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+            MPI_Waitall(2, req_array, stat_array);
+#endif
         }
         
         t_0 = my_time();
         for(int n=0; n<N; ++n)
         { 
-            recv(message, message_size, 0, "pong");
-            send(message, message_size, 0, "pong");
+#ifndef NON_BLOCKING
+            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
+#else
+            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+            MPI_Waitall(2, req_array, stat_array);
+#endif
         }
         t_1 = my_time();
         
@@ -80,10 +110,10 @@ double benchmark(int rank, size_t message_size)
     }
     else
     {
-        // do nothing
+        throw std::runtime_error("must be run with 2 processes!");
     }
         
-    return (t_1 - t_0) / (4*N);
+    return (t_1 - t_0) / (2*N);
 }
 
 int main(int argc, char ** argv)
@@ -92,7 +122,7 @@ int main(int argc, char ** argv)
     MPI_Status status;
     
     const int message_size_min = 8;
-    int message_size_max = 1024 * 64; // ca. 64 kB
+    int message_size_max = 1024 * 1024; // ca. 1 MB
     
     if(argc == 2) message_size_max = std::atoi(argv[1]);
     
@@ -107,8 +137,20 @@ int main(int argc, char ** argv)
     
     if(rank == 0 )
     {
-        std::cout << "PING-PONG BENCHMARK" << std::endl;
-        std::cout << "- ping-pong sizes: [ " << message_size_min << " B, " << message_size_max/1.0e3 << " kB ]" << std::endl;
+        std::cout << "PING-PONG BENCHMARK";
+#ifdef DO_WARMUP
+        std::cout << " \\w warmup";
+#else
+        std::cout << " \\wo warmup";
+#endif
+        
+#ifdef NON_BLOCKING
+        std::cout << " \\non blocking";
+#else
+        std::cout << " \\blocking";
+#endif
+        std::cout <<std::endl;
+        std::cout << "- ping-pong sizes: [ " << message_size_min << " B, " << message_size_max/1.0e6 << " MB ]" << std::endl;
     }
     
     for(size_t message_size = message_size_min; message_size < message_size_max; message_size *= 2)
@@ -142,7 +184,8 @@ int main(int argc, char ** argv)
         std::cout << "- bandwidth range  = [ " << mbndws.min/1.0e9 << ", " << mbndws.max/1.0e9 << " ] GB/s" << std::endl;
         std::cout << "- bandwidth value  = ( " << mbndws.avg/1.0e9 << " +- " << mbndws.err/1.0e9 << " ) GB/s" << std::endl;
         
-        export_3_vectors({"size", "time", "error"}, sizes, times, times_err, "mpi_pingpong.txt");
+        mc::clear_file("mpi_pingpong.txt");
+        mc::export_containers("mpi_pingpong.txt", {"size", "time", "error"}, sizes, times, times_err);
     }
     
     MPI_Finalize();

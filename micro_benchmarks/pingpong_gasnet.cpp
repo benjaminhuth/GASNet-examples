@@ -29,8 +29,10 @@ int main(int argc, char ** argv)
         { long_rep_id,   (void(*)())long_reply_handler }
     };
     
+    std::size_t segment_size = 1024*1024; // 1 MB
+    if(argc == 2) segment_size = std::atoi(argv[1]);
+    
     gasnet_init(&argc, &argv);
-    std::size_t segment_size = 1024*1024*128; // 128 Mbyte
     gasnet_attach(handlers.data(), handlers.size(), segment_size, 0);
     
     int rank = gasnet_mynode();
@@ -66,7 +68,7 @@ int main(int argc, char ** argv)
 
     // test medium messages
     int medium_msg_size_min = 8;
-    int medium_msg_size_max = gasnet_AMMaxMedium();
+    int medium_msg_size_max = std::min(segment_size, gasnet_AMMaxMedium());
     if(rank == 0 ) std::cout << "- ping-pong on medium, sizes: [ " << medium_msg_size_min << " B, " << medium_msg_size_max/1.0e3 << " kB ]" << std::endl;
     
     std::vector<int> medium_sizes;
@@ -88,7 +90,7 @@ int main(int argc, char ** argv)
     // test long messages
     int long_msg_size_min = 8;
     int long_msg_size_max = std::min(segment_size, gasnet_AMMaxLongRequest());
-    if(rank == 0 ) std::cout << "- ping-pong on long, sizes: [ " << long_msg_size_min << " B, " << long_msg_size_max/1.0e3 << " kB ]" << std::endl;
+    if(rank == 0 ) std::cout << "- ping-pong on long, sizes: [ " << long_msg_size_min << " B, " << long_msg_size_max/1.0e6 << " MB ]" << std::endl;
     
     std::vector<int> long_sizes;
     std::vector<double> long_times;
@@ -132,7 +134,8 @@ int main(int argc, char ** argv)
         std::cout << "- medium: bandwidth range  = [ " << mbndws.min/1.0e9 << ", " << mbndws.max/1.0e9 << " ] GB/s" << std::endl;
         std::cout << "- medium: bandwidth value  = ( " << mbndws.avg/1.0e9 << " +- " << mbndws.err/1.0e9 << " ) GB/s" << std::endl;
         
-        export_3_vectors({"size", "time", "error"}, medium_sizes, medium_times, medium_times_err, "gasnet_pingpong_medium" + filename_modifiers + ".txt");
+        mc::clear_file("gasnet_pingpong_medium" + filename_modifiers + ".txt");
+        mc::export_containers("gasnet_pingpong_medium" + filename_modifiers + ".txt", {"size", "time", "error"}, medium_sizes, medium_times, medium_times_err);
                 
         // long
         auto ltimes = compute_time_data(long_times, long_times_err, long_sizes);
@@ -149,7 +152,8 @@ int main(int argc, char ** argv)
         std::cout << "- long:   bandwidth range  = [ " << lbndws.min/1.0e9 << ", " << lbndws.max/1.0e9 << " ] GB/s" << std::endl;
         std::cout << "- long:   bandwidth value  = ( " << lbndws.avg/1.0e9 << " +- " << lbndws.err/1.0e9 << " ) GB/s" << std::endl;
         
-        export_3_vectors({"size", "time", "error"}, long_sizes, long_times, long_times_err, "gasnet_pingpong_long" + filename_modifiers + ".txt");
+        mc::clear_file("gasnet_pingpong_long" + filename_modifiers + ".txt");
+        mc::export_containers("gasnet_pingpong_long" + filename_modifiers + ".txt", {"size", "time", "error"}, long_sizes, long_times, long_times_err);
     }
     
     BARRIER();

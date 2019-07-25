@@ -47,20 +47,6 @@ bandwidth_data_t compute_bandwidth_data(double latency, const std::vector<double
     
     return { bndw_min, bndw_max, bndw_avg, bndw_err };
 }
-
-template<class A, class B, class C>
-void export_3_vectors(std::array<std::string, 3> titles, std::vector<A> a, std::vector<B> b, std::vector<C> c, std::string filename)
-{
-    std::ofstream file(filename);
-    if( a.size() != b.size() || a.size() != c.size() ) throw std::runtime_error("vector sizes don't match");
-    
-    file << titles[0] << '\t' << titles[1] << '\t' << titles[2] << '\n';
-    
-    for(int i=0; i<a.size(); ++i)
-    {
-        file << a[i] << '\t' << b[i] << '\t' << c[i] << '\n';
-    }
-}
     
 
 #endif

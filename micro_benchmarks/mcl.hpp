@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <exception>
+    
 
 namespace mc
 {
@@ -56,7 +57,9 @@ namespace mc
     
     // Vector operations
     
-    template<class iterator_t, class container_t = std::vector<typename iterator_t::value_type>, class number_t = typename iterator_t::value_type>
+    template<class iterator_t, 
+             class container_t = std::vector<typename std::iterator_traits<iterator_t>::value_type>, 
+             class number_t = typename std::iterator_traits<iterator_t>::value_type>
     inline container_t square_container(const iterator_t begin, const iterator_t end)
     {
         static_assert( std::is_arithmetic<number_t>::value, "Container must store arithmetic type");
@@ -73,7 +76,9 @@ namespace mc
         return square_container<typename container_t::const_iterator, container_t>(data.begin(), data.end());
     }
     
-    template<class iterator_t, class container_t = std::vector<typename iterator_t::value_type>, class number_t = typename iterator_t::value_type>
+    template<class iterator_t, 
+             class container_t = std::vector<typename std::iterator_traits<iterator_t>::value_type>, 
+             class number_t = typename std::iterator_traits<iterator_t>::value_type>
     inline container_t abs_container(const iterator_t begin, const iterator_t end)
     {
         static_assert( std::is_arithmetic<number_t>::value, "Container must store arithmetic type");
@@ -111,79 +116,78 @@ namespace mc
         std::string name_str = name.empty() ? "" : name + " = ";
         std::cout << name_str << stringify_container(c) << std::endl;
     }
-
-
-    template<typename container_t>
-    inline void export_container(std::string filename, const container_t & c)
-    {
-        std::fstream file(filename, file.out);
-        if(!file.is_open()) throw std::runtime_error("Could not open file \"" + filename + "\"");
-        
-        for(auto &element : c)
-        {
-            file << element << "\n";
-        }
-        
-        file.close();
-    }
     
-    inline void export_containers(std::string filename) { }
+    inline void export_containers(std::string filename, std::vector<std::string> headers) 
+    {
+        if( headers.size() != 0 )
+            throw std::runtime_error("number of headers must match number of containers");
+    }
         
     template<class container_t, class ... containers_t>
-    inline void export_containers(std::string filename, const container_t &container, const containers_t& ... remaining)
-    {    
-        std::fstream file(filename, file.in);
+    inline void export_containers(std::string filename, std::vector<std::string> headers, 
+                                  const container_t &container, const containers_t& ... remaining)
+    {
+        std::ifstream old_file(filename, std::ios::in);
+        std::stringstream file_buffer;
         
         // file is empty
-        if(!file.is_open())
+        if(old_file.peek() == std::ifstream::traits_type::eof() )
         {
-            std::cout << "first" << std::endl;
-            file.clear();
-            file.open(filename, file.out);
-        
-            if(!file.is_open())
-                throw std::runtime_error("Could not open file \"" + filename + "\"");
+            // write first header and erase afterwards
+            file_buffer << headers.front() << '\n';
+            headers.erase(headers.begin());
             
+            // write data of first container
             for(auto &el : container)
             {
-                file << el << "\n";
+                file_buffer << el << '\n';
             }
-            
-            file.close();
         }
         else
         {
-            std::cout << "not first" << std::endl;
+            bool has_header = false;
+            auto it = container.begin();
             
-            file.close();
-            file.open(filename, file.in | file.out);
-            
-            typename container_t::const_iterator it;
-            for(it = container.begin(); it != container.end(); ++it)
+            for(char next = old_file.get(); !old_file.eof(); old_file.get(next))
             {
-                while( file.peek() != '\n' )
+                if( next == '\n' )
                 {
-                    file.get();
+                    if( !has_header )
+                    {
+                        if( !headers.empty() )
+                            file_buffer << '\t' << headers.front();
+                        else
+                            throw std::runtime_error("number of headers must match number of containers");
+                        
+                        headers.erase(headers.begin());
+                        has_header = true;
+                    }
+                    else
+                    {
+                        if( it != container.end() )
+                            file_buffer << '\t' << *it++;
+                        else
+                            throw std::runtime_error("vector sizes do not match!");
+                    }
                 }
-                file.seekp(file.tellg());
-                file << '\t' << *it;
-                file.seekg(file.tellp());
-                file.get();
-                
-                if(file.get() == std::ifstream::traits_type::eof() )
-                    break;
+                file_buffer << next;
             }
-            
-            file.close();
-            
-            if( it != container.end()-1 )
-                throw std::runtime_error("container sizes do not match");
-            
-            
-            exit(1);
         }
-        export_containers(filename, remaining...);
+        
+        old_file.close();
+        
+        std::ofstream new_file(filename, std::ios::out  | std::ios::trunc);
+        new_file << file_buffer.str();
+        new_file.close();
+        
+        export_containers(filename, headers, remaining...);
     }
+    
+    inline void clear_file(std::string filename)
+    {
+        std::ofstream file(filename, std::ios::out | std::ios::trunc);
+    }
+        
     
     template<typename T>
     inline std::vector<T> range(T start, T step, int steps)
