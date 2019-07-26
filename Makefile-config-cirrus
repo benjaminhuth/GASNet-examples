@@ -1,0 +1,4 @@
+CONDUIT=ibv
+MPICXX=mpicxx
+GASNET_INSTALL_DIR=/lustre/home/y15/bhuth/GASNet/local/
+STD=-std=c++14
