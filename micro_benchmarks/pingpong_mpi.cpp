@@ -4,15 +4,15 @@
 #include <algorithm>
 #include <string>
 #include <cmath>
+#include <cstring>
 
 #include <mpi.h>
-
 #include "mcl.hpp"
 #include "result.hpp"
 
 #define STANDARD_TAG 10
-// #define DO_WARMUP
-#define NON_BLOCKING
+#define DO_WARMUP
+// #define NON_BLOCKING
 
 const int N = 500;
 const int N_warmup = 50;
@@ -26,94 +26,125 @@ double my_time()
     return MPI_Wtime();
 }
 
-void send(byte_t *msg, size_t size, int dest, std::string name)
+double benchmark_loop_block(byte_t *data, size_t size, int destination)
 {
-    MPI_Ssend(msg, size, MPI_BYTE, dest, STANDARD_TAG, MPI_COMM_WORLD);
+#ifdef DO_WARMUP
+    for(int n=0; n<N_warmup; ++n)
+    {
+        if(destination % 2 == 0)
+        {
+            MPI_Ssend(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD);
+            MPI_Recv(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+        else
+        {
+            MPI_Recv(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Ssend(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD);
+            
+        }
+    }
+#endif
+        
+    MPI_Barrier(MPI_COMM_WORLD);
+    auto t_0 = my_time();
+    for(int n=0; n<N; ++n)
+    {                
+        if(destination % 2 == 0)
+        {
+            MPI_Ssend(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD);
+            MPI_Recv(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+        else
+        {
+            MPI_Recv(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Ssend(data, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD);
+            
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    auto t_1 = my_time();
+    
+    return (t_1 - t_0) / (2*N);
 }
 
-void recv(byte_t *msg, size_t size, int src, std::string name)
-{        
-    MPI_Recv(msg, size, MPI_BYTE, src, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+double benchmark_loop_nonblock(byte_t *send_buffer, byte_t *recv_buffer, size_t size, int destination)
+{
+    MPI_Request req_array[2];
+    MPI_Status  stat_array[2];
+    
+#ifdef DO_WARMUP
+    for(int n=0; n<N_warmup; ++n)
+    {
+        MPI_Isend(send_buffer, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+        MPI_Irecv(recv_buffer, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+        MPI_Waitall(2, req_array, stat_array);
+        std::memcpy(recv_buffer, send_buffer, size);
+    }
+#endif
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    auto t_0 = my_time();
+    for(int n=0; n<N; ++n)
+    {
+        MPI_Isend(send_buffer, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
+        MPI_Irecv(recv_buffer, size, MPI_BYTE, destination, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
+        MPI_Waitall(2, req_array, stat_array);
+        std::memcpy(recv_buffer, send_buffer, size);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    auto t_1 = my_time();
+
+    return (t_1 - t_0) / (2*N);    
 }
 
 double benchmark(int rank, size_t message_size)
-{   
-    MPI_Request req_array[2];
-    MPI_Status  stat_array[2];
-    double t_0, t_1;
+{
+    double time = 0.0;
     
     if( rank == 0 )
     {
-        int neighbour = 1;
+        int destination = 1;
+#ifdef NON_BLOCKING
+        auto send_buffer = new byte_t[message_size];
+        auto recv_buffer = new byte_t[message_size];
+        
+        time = benchmark_loop_nonblock(send_buffer, recv_buffer, message_size, destination);
+        
+        delete[] send_buffer;
+        delete[] recv_buffer;
+#else
         auto message = new byte_t[message_size];
         
-        for(int n=0; n<N_warmup; ++n)
-        {
-#ifndef NON_BLOCKING
-            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
-            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-#else
-            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
-            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
-            MPI_Waitall(2, req_array, stat_array);
-#endif
-        }
-        
-        t_0 = my_time();
-        for(int n=0; n<N; ++n)
-        {
-#ifndef NON_BLOCKING
-            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
-            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-#else
-            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
-            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
-            MPI_Waitall(2, req_array, stat_array);
-#endif
-        }
-        t_1 = my_time();
+        time = benchmark_loop_block(message, message_size, destination);
         
         delete[] message;
+#endif
     }
     else if( rank == 1 )
     {
-        int neighbour = 0;
+        int destination = 0;
+#ifdef NON_BLOCKING
+        auto send_buffer = new byte_t[message_size];
+        auto recv_buffer = new byte_t[message_size];
+        
+        time = benchmark_loop_nonblock(send_buffer, recv_buffer, message_size, destination);
+        
+        delete[] send_buffer;
+        delete[] recv_buffer;
+#else
         auto message = new byte_t[message_size];
         
-        for(int n=0; n<N_warmup; ++n)
-        {
-#ifndef NON_BLOCKING
-            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
-#else
-            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
-            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
-            MPI_Waitall(2, req_array, stat_array);
-#endif
-        }
-        
-        t_0 = my_time();
-        for(int n=0; n<N; ++n)
-        { 
-#ifndef NON_BLOCKING
-            MPI_Recv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Ssend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD);
-#else
-            MPI_Irecv(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[1]);
-            MPI_Isend(message, message_size, MPI_BYTE, neighbour, STANDARD_TAG, MPI_COMM_WORLD, &req_array[0]);
-            MPI_Waitall(2, req_array, stat_array);
-#endif
-        }
-        t_1 = my_time();
+        time = benchmark_loop_block(message, message_size, destination);
         
         delete[] message;
+#endif
     }
     else
     {
         throw std::runtime_error("must be run with 2 processes!");
     }
         
-    return (t_1 - t_0) / (2*N);
+    return time;
 }
 
 int main(int argc, char ** argv)
