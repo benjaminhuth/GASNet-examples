@@ -42,6 +42,7 @@ endif
 endif
 
 MPICXX=CC
+MPICC=cc
 CONDUIT=aries
 $(info Use conduit '$(CONDUIT)')
 
