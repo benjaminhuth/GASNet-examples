@@ -65,7 +65,7 @@ DTYPE *local_norms;
 int num_local_norms = 0;
 
 void transfer_request_handler(gasnet_token_t token, void *buf, size_t nbytes, gasnet_handlerarg_t direction)
-{
+{    
     DTYPE *buf_in;
     
     // top must go in bottom, left in right and vise verse
@@ -143,7 +143,7 @@ int main(int argc, char ** argv) {
     { reduce_req_handler_index,     (void(*)())reduce_request_handler } 
   };
   
-  uintptr_t segsize = 64 * 1024; // 64 KiB
+  uintptr_t segsize = 1024 * 1024; // 1 MiB
   uintptr_t min_heap_offset = 0;
   
   gasnet_attach(handlers, sizeof(handlers)/sizeof(gasnet_handlerentry_t), segsize, min_heap_offset);
@@ -237,6 +237,16 @@ int main(int argc, char ** argv) {
   if (my_IDx > 0)
     num_neighbors++;
   
+  /* compute max-message-size */
+  int max_extent = MAX( width, height );
+  size_t max_msg_size = max_extent*RADIUS*sizeof(DTYPE);
+  
+  if( max_msg_size*4 > segsize )
+  {
+    printf("ERROR: GASNet segment size is to small, increase it!");
+    exit(EXIT_FAILURE);
+  }
+  
   /* do loop */
   for (iter = 0; iter<=iterations; iter++) {
     
@@ -259,7 +269,7 @@ int main(int argc, char ** argv) {
       if( msg_size < max_medium )
         gasnet_AMRequestMedium1(top_nbr, transfer_req_handler_index, top_buf_out, msg_size, top);
       else if( msg_size < max_long )
-        gasnet_AMRequestLong1(top_nbr, transfer_req_handler_index, top_buf_out, msg_size, seginfo_table[top_nbr].addr, top);
+        gasnet_AMRequestLong1(top_nbr, transfer_req_handler_index, top_buf_out, msg_size, (char *)seginfo_table[top_nbr].addr + top*max_msg_size, top);
       else
       {
         printf("ERROR: message size to big\n", my_ID);
@@ -280,7 +290,7 @@ int main(int argc, char ** argv) {
       if( msg_size < max_medium )
         gasnet_AMRequestMedium1(bottom_nbr, transfer_req_handler_index, bottom_buf_out, msg_size, bottom);
       else if( msg_size < max_long )
-        gasnet_AMRequestLong1(bottom_nbr, transfer_req_handler_index, bottom_buf_out, msg_size, seginfo_table[bottom_nbr].addr, bottom);
+        gasnet_AMRequestLong1(bottom_nbr, transfer_req_handler_index, bottom_buf_out, msg_size, (char *)seginfo_table[bottom_nbr].addr + bottom*max_msg_size, bottom);
       else
       {
         printf("ERROR: message size to big\n", my_ID);
@@ -303,7 +313,7 @@ int main(int argc, char ** argv) {
       if( msg_size < max_medium )
         gasnet_AMRequestMedium1(right_nbr, transfer_req_handler_index, right_buf_out, msg_size, right);
       else if( msg_size < max_long )
-        gasnet_AMRequestLong1(right_nbr, transfer_req_handler_index, right_buf_out, msg_size, seginfo_table[right_nbr].addr, right);
+        gasnet_AMRequestLong1(right_nbr, transfer_req_handler_index, right_buf_out, msg_size, (char *)seginfo_table[right_nbr].addr + right*max_msg_size, right);
       else
       {
         printf("ERROR: message size to big\n", my_ID);
@@ -324,7 +334,7 @@ int main(int argc, char ** argv) {
       if( msg_size < max_medium )
         gasnet_AMRequestMedium1(left_nbr, transfer_req_handler_index, left_buf_out, msg_size, left);
       else if( msg_size < max_long )
-        gasnet_AMRequestLong1(left_nbr, transfer_req_handler_index, left_buf_out, msg_size, seginfo_table[left_nbr].addr, left);
+        gasnet_AMRequestLong1(left_nbr, transfer_req_handler_index, left_buf_out, msg_size, (char *)seginfo_table[left_nbr].addr + left*max_msg_size, left);
       else
       {
         printf("ERROR: message size to big\n", my_ID);
