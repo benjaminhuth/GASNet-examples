@@ -1,15 +1,5 @@
-# checks if CONDUIT is defined outside in terminal
-ifdef CONDUIT
-MANUAL_CONDUIT=$(CONDUIT)
-endif
-
 # include either Makefile-config-archer or Makefile-config-local
-include Makefile-config-local
-
-#if necessary overwrites included value for CONDUIT
-ifdef MANUAL_CONDUIT
-CONDUIT=$(MANUAL_CONDUIT)
-endif
+include Makefile-config-archer
 
 include $(GASNET_INSTALL_DIR)/include/$(CONDUIT)-conduit/$(CONDUIT)-par.mak
 
